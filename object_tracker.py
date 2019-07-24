@@ -1,13 +1,19 @@
-from models import *
-from utils import *
+import datetime
+import os
+import random
+import sys
+import time
 
-import os, sys, time, datetime, random
 import torch
+from PIL import Image
+from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-from torch.autograd import Variable
 
-from PIL import Image
+import cv2
+from models import *
+from sort import *
+from utils import *
 
 # load weights and set defaults
 config_path='config/yolov3.cfg'
@@ -16,6 +22,8 @@ class_path='config/coco.names'
 img_size=416
 conf_thres=0.8
 nms_thres=0.4
+
+STATIC_DETECT = False
 
 # load model and put into eval mode
 model = Darknet(config_path, img_size=img_size)
@@ -46,10 +54,8 @@ def detect_image(img):
         detections = utils.non_max_suppression(detections, 80, conf_thres, nms_thres)
     return detections[0]
 
-videopath = '../data/video/overpass.mp4'
+videopath = sys.argv[1]
 
-import cv2
-from sort import *
 colors=[(255,0,0),(0,255,0),(0,0,255),(255,0,255),(128,0,0),(0,128,0),(0,0,128),(128,0,128),(128,128,0),(0,128,128)]
 
 vid = cv2.VideoCapture(videopath)
@@ -67,6 +73,7 @@ outvideo = cv2.VideoWriter(videopath.replace(".mp4", "-det.mp4"),fourcc,20.0,(vw
 
 frames = 0
 starttime = time.time()
+static_obj = {}
 while(True):
     ret, frame = vid.read()
     if not ret:
@@ -94,9 +101,36 @@ while(True):
             x1 = int(((x1 - pad_x // 2) / unpad_w) * img.shape[1])
             color = colors[int(obj_id) % len(colors)]
             cls = classes[int(cls_pred)]
-            cv2.rectangle(frame, (x1, y1), (x1+box_w, y1+box_h), color, 4)
-            cv2.rectangle(frame, (x1, y1-35), (x1+len(cls)*19+80, y1), color, -1)
-            cv2.putText(frame, cls + "-" + str(int(obj_id)), (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 3)
+            if STATIC_DETECT:
+                sum_cor = int(np.sum([x1, y1, x2, y2]))
+                print(sum_cor)
+                print(int(obj_id))
+                print(int(obj_id) in static_obj)
+                if int(obj_id) in static_obj:
+                    odds = np.fabs(static_obj[int(obj_id)]["sum"] - sum_cor)
+                    print(odds)
+                    if odds < 50:
+                        if static_obj[int(obj_id)]["time"] > 200 and static_obj[int(obj_id)]["time"] < 700:
+                            cv2.rectangle(frame, (x1, y1), (x1+box_w, y1+box_h), color, 4)
+                            cv2.rectangle(frame, (x1, y1-35), (x1+len(cls)*19+80, y1), color, -1)
+                            cv2.putText(frame, "STATIC " + cls + "-" + str(int(obj_id)), (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 3)
+                        if static_obj[int(obj_id)]["time"] > 700:
+                            second = static_obj[int(obj_id)]["time"] - 700
+                            cv2.rectangle(frame, (x1, y1), (x1+box_w, y1+box_h), colors[2], 4)
+                            cv2.rectangle(frame, (x1, y1-35), (x1+len(cls)*19+90, y1), colors[2], -1)
+                            cv2.putText(frame, "ATTENTION " + str(second) + "s", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 3)
+                        else:
+                            static_obj[int(obj_id)]["time"] += 1
+                            print(static_obj[int(obj_id)]["time"])
+                    else:
+                        static_obj[int(obj_id)] = {"sum": sum_cor, "time": 0 }
+                else:
+                    static_obj[int(obj_id)] = {"sum": sum_cor, "time": 0 }
+                    print(static_obj)
+            else:
+                cv2.rectangle(frame, (x1, y1), (x1+box_w, y1+box_h), color, 4)
+                cv2.rectangle(frame, (x1, y1-35), (x1+len(cls)*19+80, y1), color, -1)
+                cv2.putText(frame, cls + "-" + str(int(obj_id)), (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 3)
 
     cv2.imshow('Stream', frame)
     outvideo.write(frame)

@@ -1,0 +1,14 @@
+numpy
+scipy
+filterpy
+numba
+scikit-image
+scikit-learn
+torch
+torchvision
+matplotlib
+tensorflow
+tensorboard
+terminaltables
+pillow
+tqdm
